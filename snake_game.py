@@ -3,12 +3,15 @@ import random
 import sys
 import math
 
+
 # Инициализация Pygame
 pygame.init()
 # Размеры окна и блоков
 WIDTH, HEIGHT = 600, 400
 BLOCK_SIZE = 20  # более мелкая детализация
 FPS = 10
+
+
 
 difficulty_buttons = [
     {"label": "Начальный", "fps": 7},
@@ -25,6 +28,10 @@ WHITE = (255, 255, 255)
 GRAY  = (100, 100, 100)
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
+grass_img = pygame.image.load("assets/images/grass.jpg").convert()
+grass_img = pygame.transform.scale(grass_img, (WIDTH, HEIGHT))
+daisy_img = pygame.image.load("assets/images/daisy.png").convert_alpha()
+daisy_img = pygame.transform.scale(daisy_img, (20, 20))
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 36)
 
@@ -38,26 +45,12 @@ def random_food():
 
 # Единый фон с ромашками и пятнами
 def draw_background():
-    screen.fill((0, 150, 0))
-    # Размытые пятна
-    for _ in range(30):
-        x = random.randint(0, WIDTH)
-        y = random.randint(0, HEIGHT)
-        radius = random.randint(30, 60)
-        pygame.draw.circle(screen, (0, 100, 0), (x, y), radius)
-    # Ромашки
+    screen.blit(grass_img, (0, 0))
+    # Ромашки (текстура)
     for _ in range(random.randint(10, 20)):
         cx = random.randint(20, WIDTH - 20)
         cy = random.randint(20, HEIGHT - 20)
-        pygame.draw.circle(screen, (255, 255, 0), (cx, cy), 4)
-        for angle in range(0, 360, 51):
-            inner_dx = int(1 * math.cos(math.radians(angle)))
-            inner_dy = int(1 * math.sin(math.radians(angle)))
-            dx = int(10 * math.cos(math.radians(angle)))
-            dy = int(10 * math.sin(math.radians(angle)))
-            pygame.draw.line(screen, WHITE,
-                             (cx + inner_dx, cy + inner_dy),
-                             (cx + dx, cy + dy), 2)
+        screen.blit(daisy_img, (cx - 10, cy - 10))
 
 
 # Отрисовка объектов
@@ -112,7 +105,18 @@ def draw_snake_detailed(screen, snake, direction):
     pygame.draw.line(screen, RED, t_end, (tx, ty), 2)
     # Туловище (всё кроме головы)
     for i, (x, y) in enumerate(snake[1:], 1):
-        pygame.draw.rect(screen, (139, 69, 19), pygame.Rect(x, y, BLOCK_SIZE, BLOCK_SIZE))
+        # Сужение для последних 30%
+        scale = 1.0
+        if i >= int(len(snake) * 0.7):
+            # scale от 1.0 до 0.6
+            scale = 0.6 + 0.4 * (len(snake) - i) / (len(snake) * 0.3)
+        body_rect = pygame.Rect(
+            int(x + (BLOCK_SIZE - BLOCK_SIZE * scale) / 2),
+            int(y + (BLOCK_SIZE - BLOCK_SIZE * scale) / 2),
+            int(BLOCK_SIZE * scale),
+            int(BLOCK_SIZE * scale)
+        )
+        pygame.draw.rect(screen, (139, 69, 19), body_rect)
         c = (x + BLOCK_SIZE // 2, y + BLOCK_SIZE // 2)
         # Пятнышки
         random.seed(x*10000+y)
@@ -120,6 +124,7 @@ def draw_snake_detailed(screen, snake, direction):
             ox = int(BLOCK_SIZE*0.5 * (random.random()-0.5))
             oy = int(BLOCK_SIZE*0.3 * (random.random()-0.5))
             spot_rect = pygame.Rect(c[0]+ox-3, c[1]+oy-2, 6, 4)
+            pygame.draw.ellipse(screen, WHITE, spot_rect.inflate(2, 2))
             pygame.draw.ellipse(screen, BLACK, spot_rect)
     # Хвост
     if len(snake) > 1:
@@ -168,15 +173,23 @@ def draw_food(food):
 
 # Отрисовка счёта во время игры
 def draw_score(score):
-    text = font.render(f"Score: {score}", True, WHITE)
-    screen.blit(text, (10, 10))
+    text = font.render(f"Счёт: {score}", True, WHITE)
+    text_rect = text.get_rect(topleft=(10, 10))
+    # Draw black outline
+    for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        screen.blit(font.render(f"Счёт: {score}", True, BLACK), text_rect.move(dx, dy))
+    screen.blit(text, text_rect)
 
 # Отрисовка лучшего счёта в главном меню
 def draw_best_score():
     if high_score > 0:
         small_font = pygame.font.SysFont(None, int(36 * 0.7))
         text = small_font.render(f"Лучший счёт: {high_score}", True, WHITE)
-        screen.blit(text, (10, 10))
+        text_rect = text.get_rect(topleft=(10, 10))
+        # Draw black outline
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            screen.blit(small_font.render(f"Лучший счёт: {high_score}", True, BLACK), text_rect.move(dx, dy))
+        screen.blit(text, text_rect)
 
 # Логика меню
 # Главное меню
@@ -292,7 +305,11 @@ def show_main_menu():
         if head not in menu_snake:
             menu_snake.insert(0, head)
         if head == menu_food:
-            menu_food = random_food()
+            while True:
+                new_food = random_food()
+                if new_food not in menu_snake:
+                    menu_food = new_food
+                    break
         else:
             menu_snake.pop()
 
@@ -453,6 +470,9 @@ def run_game():
     plus_one_duration = 2000
     plus_three_pos = None
     plus_three_start_time = None
+    poison = None
+    minus_one_pos = None
+    minus_one_start_time = None
 
     while True:
         for event in pygame.event.get():
@@ -466,11 +486,29 @@ def run_game():
         head = (head_x, head_y)
         snake.insert(0, head)
 
+        # Генерация кляксы (poison) вне змейки, еды и большого яблока
+        if poison is None:
+            while True:
+                p = random_food()
+                occupied = p in snake or p == food
+                big_collide = False
+                if big_food:
+                    big_rect = pygame.Rect(*big_food, BLOCK_SIZE*2, BLOCK_SIZE*2)
+                    p_rect = pygame.Rect(*p, BLOCK_SIZE, BLOCK_SIZE)
+                    big_collide = p_rect.colliderect(big_rect)
+                if not occupied and not big_collide:
+                    poison = p
+                    break
+
         # Обычное яблоко
         if head == food:
             score += 1
             apples_eaten += 1
-            food = random_food()
+            while True:
+                food_candidate = random_food()
+                if food_candidate not in snake:
+                    food = food_candidate
+                    break
             plus_one_pos = (head_x + BLOCK_SIZE // 2, head_y)
             plus_one_start_time = pygame.time.get_ticks()
             # Каждые 5 — большое яблоко
@@ -482,6 +520,15 @@ def run_game():
                     if all(not r.colliderect(big_rect) for r in occupied_rects):
                         big_food = candidate
                         break
+        # Клякса (poison)
+        elif head == poison:
+            score = max(0, score - 1)
+            poison = None
+            if len(snake) > 6:
+                snake.pop()
+            minus_one_pos = (head_x + BLOCK_SIZE // 2, head_y)
+            minus_one_start_time = pygame.time.get_ticks()
+            snake.pop()
         # Большое яблоко
         elif big_food:
             head_rect = pygame.Rect(head_x, head_y, BLOCK_SIZE, BLOCK_SIZE)
@@ -508,7 +555,7 @@ def run_game():
         if big_food:
             x, y = big_food
             center = (x + BLOCK_SIZE // 2, y + BLOCK_SIZE // 2)
-            big_radius = BLOCK_SIZE * 2 - 2
+            big_radius = BLOCK_SIZE - 2
             pygame.draw.circle(screen, BLACK, center, big_radius + 1)
             pygame.draw.circle(screen, RED, center, big_radius)
             # Отблеск
@@ -518,6 +565,9 @@ def run_game():
                              (center[0], center[1] - big_radius - 12), 3)
             # Листик
             pygame.draw.circle(screen, (0, 200, 0), (center[0] - 12, center[1] - big_radius - 10), 6)
+        # Клякса (poison)
+        if poison:
+            pygame.draw.circle(screen, (255, 255, 0), (poison[0] + BLOCK_SIZE // 2, poison[1] + BLOCK_SIZE // 2), BLOCK_SIZE // 2 - 2)
 
         draw_score(score)
         # "+1"
@@ -548,6 +598,20 @@ def run_game():
             else:
                 plus_three_pos = None
                 plus_three_start_time = None
+        # "-1"
+        if minus_one_pos and minus_one_start_time:
+            elapsed = pygame.time.get_ticks() - minus_one_start_time
+            if elapsed < plus_one_duration:
+                y_offset = int((elapsed / plus_one_duration) * 30)
+                minus_one_text = font.render("-1", True, (255, 0, 0))
+                minus_one_shadow = font.render("-1", True, BLACK)
+                x = minus_one_pos[0] - minus_one_text.get_width() // 2
+                y = minus_one_pos[1] - y_offset
+                screen.blit(minus_one_shadow, (x + 1, y + 1))
+                screen.blit(minus_one_text, (x, y))
+            else:
+                minus_one_pos = None
+                minus_one_start_time = None
 
         pygame.display.flip()
         clock.tick(FPS)
